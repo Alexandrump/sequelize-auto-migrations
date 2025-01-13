@@ -2,7 +2,7 @@
 
 import commandLineArgs from 'command-line-args';
 import * as migrate from '../lib/migrate.js';
-import pathConfig from '../lib/pathconfig.js';
+import { getMigrationsPath, getModelsPath } from '../lib/pathconfig.js';
 
 import fs from 'fs';
 import _ from 'lodash';
@@ -29,8 +29,8 @@ if (options.help) {
 }
 
 (async () => {
-    const migrationsPath = options['migrations-path'] || pathConfig.getMigrationsPath();
-    const modelsPath = options['models-path'] || pathConfig.getModelsPath();
+    const migrationsPath = await getMigrationsPath(options);
+    const modelsPath = await getModelsPath(options);
 
     if (!fs.existsSync(modelsPath)) {
         console.error(`Models path does not exist: ${modelsPath}`);
