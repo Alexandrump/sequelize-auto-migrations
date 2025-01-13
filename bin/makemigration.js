@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import commandLineArgs from 'command-line-args';
-import migrate from '../lib/migrate.js';
+import * as migrate from '../lib/migrate.js';
 import pathConfig from '../lib/pathconfig.js';
 
 import fs from 'fs';
