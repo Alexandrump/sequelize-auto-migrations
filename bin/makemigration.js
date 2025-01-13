@@ -4,7 +4,7 @@ import commandLineArgs from 'command-line-args';
 import jsBeautify from "js-beautify";
 const { js_beautify: beautify } = jsBeautify;
 import migrate from '../lib/migrate.js';
-import { getPaths } from '../lib/pathconfig.js';
+import getPaths from '../lib/pathconfig.js';
 
 import fs from 'fs';
 import path from 'path';
