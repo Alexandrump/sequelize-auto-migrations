@@ -2,8 +2,10 @@
 
 import commandLineArgs from 'command-line-args';
 import fs from 'fs';
+import path from 'path';
+import Async from 'async';
 import migrate from '../lib/migrate.js';
-import pathConfig from '../lib/pathconfig.js';
+import { getPaths } from '../lib/pathconfig.js';
 
 const optionDefinitions = [
     { name: 'rev', alias: 'r', type: Number, description: 'Set migration revision (default: 0)', defaultValue: 0 },
@@ -18,37 +20,62 @@ const optionDefinitions = [
 const options = commandLineArgs(optionDefinitions);
 
 if (options.help) {
-    console.log('Usage: runmigration [options]');
-    console.log('Options:');
+    console.log("Usage: runmigration [options]");
     optionDefinitions.forEach(option => {
         console.log(`  --${option.name}${option.alias ? `, -${option.alias}` : ''}: ${option.description}`);
     });
     process.exit(0);
 }
 
-(async () => {
-    const migrationsPath = options['migrations-path'] || pathConfig.getMigrationsPath();
+// Windows support
+if (!process.env.PWD) {
+    process.env.PWD = process.cwd();
+}
 
-    if (!fs.existsSync(migrationsPath)) {
-        console.error(`Migrations path does not exist: ${migrationsPath}`);
-        process.exit(1);
-    }
+const { migrationsDir, modelsDir } = getPaths(options);
 
-    if (options.list) {
-        console.log('Available migrations:');
-        const files = fs.readdirSync(migrationsPath).filter(file => file.endsWith('.js'));
-        files.forEach(file => console.log(file));
+if (!fs.existsSync(modelsDir)) {
+    console.error(`Models directory not found: ${modelsDir}`);
+    process.exit(1);
+}
+
+if (!fs.existsSync(migrationsDir)) {
+    console.error(`Migrations directory not found: ${migrationsDir}`);
+    process.exit(1);
+}
+
+if (options.list) {
+    console.log("Migrations to execute:");
+    const migrationFiles = fs.readdirSync(migrationsDir)
+        .filter(file => file.endsWith('.js'))
+        .sort((a, b) => parseInt(a.split('-')[0]) - parseInt(b.split('-')[0]));
+    migrationFiles.forEach(file => console.log(file));
+    process.exit(0);
+}
+
+const sequelize = require(modelsDir).sequelize;
+const queryInterface = sequelize.getQueryInterface();
+
+let migrationFiles = fs.readdirSync(migrationsDir)
+    .filter(file => file.endsWith('.js'))
+    .sort((a, b) => parseInt(a.split('-')[0]) - parseInt(b.split('-')[0]))
+    .filter(file => parseInt(file.split('-')[0]) >= options.rev);
+
+console.log("Migrations to execute:");
+migrationFiles.forEach(file => console.log(file));
+
+Async.eachSeries(
+    migrationFiles,
+    (file, callback) => {
+        console.log(`Executing migration: ${file}`);
+        migrate.executeMigration(queryInterface, path.join(migrationsDir, file), options.pos, err => {
+            if (options.one) return callback("Stopped after first migration");
+            callback(err);
+        });
+    },
+    err => {
+        if (err) console.error(err);
+        console.log("All migrations executed.");
         process.exit(0);
     }
-
-    console.log('Running migrations...');
-
-    await migrate.runMigration({
-        migrationsPath,
-        revision: options.rev,
-        pos: options.pos,
-        one: options.one
-    });
-
-    console.log('Migrations executed successfully.');
-})();
+);

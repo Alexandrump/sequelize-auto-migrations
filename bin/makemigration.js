@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
 import commandLineArgs from 'command-line-args';
-import * as migrate from '../lib/migrate.js';
-import { getMigrationsPath, getModelsPath } from '../lib/pathconfig.js';
+import jsBeautify from "js-beautify";
+const { js_beautify: beautify } = jsBeautify;
+import migrate from '../lib/migrate.js';
+import { getPaths } from '../lib/pathconfig.js';
 
 import fs from 'fs';
+import path from 'path';
 import _ from 'lodash';
 
 const optionDefinitions = [
@@ -14,53 +17,114 @@ const optionDefinitions = [
     { name: 'execute', alias: 'x', type: Boolean, description: 'Create new migration and execute it' },
     { name: 'migrations-path', type: String, description: 'The path to the migrations folder' },
     { name: 'models-path', type: String, description: 'The path to the models folder' },
-    { name: 'help', alias: 'h', type: Boolean, description: 'Show help' }
+    { name: 'help', type: Boolean, description: 'Show this message' }
 ];
 
 const options = commandLineArgs(optionDefinitions);
 
 if (options.help) {
-    console.log('Usage: makemigration [options]');
-    console.log('Options:');
+    console.log("Sequelize migration creation tool\n\nUsage:");
     optionDefinitions.forEach(option => {
-        console.log(`  --${option.name}${option.alias ? `, -${option.alias}` : ''}: ${option.description}`);
+        const alias = option.alias ? ` (-${option.alias})` : '\t';
+        console.log(`\t --${option.name}${alias} \t${option.description}`);
     });
     process.exit(0);
 }
 
-(async () => {
-    const migrationsPath = await getMigrationsPath(options);
-    const modelsPath = await getModelsPath(options);
+// Windows support
+if (!process.env.PWD) {
+    process.env.PWD = process.cwd();
+}
 
-    if (!fs.existsSync(modelsPath)) {
-        console.error(`Models path does not exist: ${modelsPath}`);
-        process.exit(1);
-    }
+const { migrationsDir, modelsDir } = getPaths(options);
 
-    const migrationName = options.name || 'noname';
-    const comment = options.comment || '';
+if (!fs.existsSync(modelsDir)) {
+    console.error("Can't find models directory. Use `sequelize init` to create it");
+    process.exit(1);
+}
 
-    console.log('Generating migration...');
+if (!fs.existsSync(migrationsDir)) {
+    console.error("Can't find migrations directory. Use `sequelize init` to create it");
+    process.exit(1);
+}
 
-    const diff = await migrate.generateMigration({
-        migrationsPath,
-        modelsPath,
-        preview: options.preview,
-        migrationName,
-        comment
+// Load current state
+const currentState = {
+    tables: {}
+};
+
+// Load last state
+let previousState = {
+    revision: 0,
+    version: 1,
+    tables: {}
+};
+
+try {
+    previousState = JSON.parse(fs.readFileSync(path.join(migrationsDir, '_current.json')));
+} catch (e) {}
+
+// Initialize Sequelize
+const sequelize = require(modelsDir).sequelize;
+const models = sequelize.models;
+
+currentState.tables = migrate.reverseModels(sequelize, models);
+
+const actions = migrate.parseDifference(previousState.tables, currentState.tables);
+
+// Sort actions
+migrate.sortActions(actions);
+
+const migration = migrate.getMigration(actions);
+
+if (migration.commandsUp.length === 0) {
+    console.log("No changes found");
+    process.exit(0);
+}
+
+// Log migration actions
+_.each(migration.consoleOut, v => {
+    console.log(`[Actions] ${v}`);
+});
+
+if (options.preview) {
+    console.log("Migration result:");
+    console.log(beautify.js(`[ \n${migration.commandsUp.join(", \n")} \n];\n`));
+    process.exit(0);
+}
+
+// Backup _current file
+if (fs.existsSync(path.join(migrationsDir, '_current.json'))) {
+    fs.writeFileSync(
+        path.join(migrationsDir, '_current_bak.json'),
+        fs.readFileSync(path.join(migrationsDir, '_current.json'))
+    );
+}
+
+// Save current state
+currentState.revision = previousState.revision + 1;
+fs.writeFileSync(path.join(migrationsDir, '_current.json'), JSON.stringify(currentState, null, 4));
+
+// Write migration to file
+const info = migrate.writeMigration(
+    currentState.revision,
+    migration,
+    migrationsDir,
+    options.name || 'noname',
+    options.comment || ''
+);
+
+console.log(`New migration to revision ${currentState.revision} has been saved to file '${info.filename}'`);
+
+if (options.execute) {
+    migrate.executeMigration(sequelize.getQueryInterface(), info.filename, 0, err => {
+        if (!err) {
+            console.log("Migration has been executed successfully");
+        } else {
+            console.error("Errors occurred during migration execution", err);
+        }
+        process.exit(0);
     });
-
-    if (options.preview) {
-        console.log('Migration preview:');
-        console.log(diff);
-    } else {
-        console.log('Migration generated successfully.');
-        console.log(`Path: ${migrationsPath}`);
-    }
-
-    if (options.execute) {
-        console.log('Executing migration...');
-        await migrate.runMigration({ migrationsPath });
-        console.log('Migration executed successfully.');
-    }
-})();
+} else {
+    process.exit(0);
+}
