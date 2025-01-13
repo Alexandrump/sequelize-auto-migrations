@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 
-import path from 'path';
 import commandLineArgs from 'command-line-args';
 import fs from 'fs';
-import Async from 'async';
-
 import migrate from '../lib/migrate.js';
 import pathConfig from '../lib/pathconfig.js';
 

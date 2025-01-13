@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 
 import commandLineArgs from 'command-line-args';
-import { js_beautify as beautify } from 'js-beautify';
 import migrate from '../lib/migrate.js';
 import pathConfig from '../lib/pathconfig.js';
 
 import fs from 'fs';
-import path from 'path';
 import _ from 'lodash';
 
 const optionDefinitions = [
